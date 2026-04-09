@@ -1,0 +1,6 @@
+[phases.setup]
+nixPkgs = ["chromium", "nss", "nspr", "atk", "at-spi2-atk", "xorg.libX11", "xorg.libXcomposite", "xorg.libXdamage", "xorg.libXext", "xorg.libXfixes", "xorg.libXrandr", "libxkbcommon", "pango", "cairo", "alsa-lib"]
+ 
+[variables]
+PUPPETEER_SKIP_CHROMIUM_DOWNLOAD = "true"
+CHROMIUM_PATH = "/nix/var/nix/profiles/default/bin/chromium"
