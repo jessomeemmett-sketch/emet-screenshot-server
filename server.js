@@ -1,19 +1,38 @@
 const express = require('express');
-const puppeteer = require('puppeteer');
+const puppeteer = require('puppeteer-core');
+const { execSync } = require('child_process');
  
 const app = express();
 const PORT = process.env.PORT || 3000;
  
+function findChrome() {
+  const candidates = [
+    '/usr/bin/google-chrome',
+    '/usr/bin/google-chrome-stable',
+    '/usr/bin/chromium',
+    '/usr/bin/chromium-browser',
+    '/snap/bin/chromium',
+  ];
+  for (const path of candidates) {
+    try { execSync(`test -f ${path}`); return path; } catch(e) {}
+  }
+  try { return execSync('which chromium-browser 2>/dev/null || which chromium 2>/dev/null || which google-chrome 2>/dev/null').toString().trim(); } catch(e) {}
+  return null;
+}
+ 
 app.get('/screenshot', async (req, res) => {
   const { url, variant } = req.query;
+  if (!url) return res.status(400).json({ error: 'Missing url parameter' });
  
-  if (!url) {
-    return res.status(400).json({ error: 'Missing url parameter' });
-  }
+  const chromePath = findChrome();
+  if (!chromePath) return res.status(500).json({ error: 'Chrome not found on system' });
+ 
+  console.log('Using Chrome at:', chromePath);
  
   let browser;
   try {
     browser = await puppeteer.launch({
+      executablePath: chromePath,
       headless: 'new',
       args: [
         '--no-sandbox',
@@ -30,33 +49,21 @@ app.get('/screenshot', async (req, res) => {
     await page.setViewport({ width: 1280, height: 900 });
     await page.setUserAgent('Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36');
  
-    // Parse the store base URL
     const storeUrl = new URL(url);
     const base = storeUrl.origin;
  
-    // Navigate to homepage
     await page.goto(base, { waitUntil: 'networkidle2', timeout: 30000 });
  
-    // Dismiss any popups/modals
+    // Dismiss popups
     await page.evaluate(() => {
-      const closeSelectors = [
-        '[data-rewardful-close]',
-        '.modal__close',
-        '.popup__close',
-        '[aria-label="Close"]',
-        '.klaviyo-close-form',
-        '#closeBtn',
-        '.js-popup-close',
-      ];
-      closeSelectors.forEach(sel => {
+      ['[aria-label="Close"]', '.modal__close', '.popup__close', '.klaviyo-close-form'].forEach(sel => {
         const el = document.querySelector(sel);
         if (el) el.click();
       });
     });
+    await new Promise(r => setTimeout(r, 800));
  
-    await new Promise(r => setTimeout(r, 1000));
- 
-    // Add product to cart if variant provided
+    // Add product to cart
     if (variant) {
       await page.evaluate(async (variantId) => {
         try {
@@ -67,80 +74,47 @@ app.get('/screenshot', async (req, res) => {
           });
         } catch(e) {}
       }, variant);
- 
       await new Promise(r => setTimeout(r, 1500));
     }
  
-    // Try to open the slide cart drawer
-    const cartOpened = await page.evaluate(() => {
+    // Open slide cart
+    const triggered = await page.evaluate(() => {
       const triggers = [
-        '[data-cart-toggle]',
-        '[data-drawer-toggle="cart-drawer"]',
-        '[data-cart-drawer-toggle]',
-        '.cart-drawer-toggle',
-        '.js-cart-trigger',
-        '.header__icon--cart',
-        '.cart-icon-bubble',
-        '[aria-controls="cart-drawer"]',
-        '[aria-controls="CartDrawer"]',
-        '.icon-cart',
-        '.js-mini-cart-trigger',
-        '[data-open-cart]',
-        '.cart__toggle',
-        '.site-header__cart',
-        '[class*="CartToggle"]',
-        '[class*="cart-toggle"]',
-        '[class*="CartIcon"]',
+        '[data-cart-toggle]', '[data-drawer-toggle="cart-drawer"]',
+        '[data-cart-drawer-toggle]', '.cart-drawer-toggle',
+        '.js-cart-trigger', '.header__icon--cart',
+        '.cart-icon-bubble', '[aria-controls="cart-drawer"]',
+        '[aria-controls="CartDrawer"]', '.icon-cart',
+        '.js-mini-cart-trigger', '[data-open-cart]',
+        '.cart__toggle', '.site-header__cart',
+        '[class*="CartToggle"]', '[class*="cart-toggle"]',
         'a[href="/cart"]',
       ];
- 
       for (const sel of triggers) {
         const el = document.querySelector(sel);
-        if (el) {
-          el.click();
-          return sel;
-        }
+        if (el) { el.click(); return sel; }
       }
- 
-      // Fire custom events as fallback
       document.dispatchEvent(new CustomEvent('cart:open'));
-      document.dispatchEvent(new CustomEvent('theme:cart:open'));
       window.dispatchEvent(new CustomEvent('cart-open'));
-      window.dispatchEvent(new CustomEvent('openCart'));
       return 'events';
     });
  
-    console.log('Cart trigger used:', cartOpened);
- 
-    // Wait for drawer animation
+    console.log('Cart triggered via:', triggered);
     await new Promise(r => setTimeout(r, 3000));
  
-    // Take screenshot
-    const screenshot = await page.screenshot({
-      type: 'jpeg',
-      quality: 85,
-      clip: { x: 0, y: 0, width: 1280, height: 900 },
-    });
+    const screenshot = await page.screenshot({ type: 'jpeg', quality: 85 });
  
-    res.set({
-      'Content-Type': 'image/jpeg',
-      'Access-Control-Allow-Origin': '*',
-      'Cache-Control': 'no-cache',
-    });
+    res.set({ 'Content-Type': 'image/jpeg', 'Access-Control-Allow-Origin': '*', 'Cache-Control': 'no-cache' });
     res.send(screenshot);
  
   } catch (err) {
-    console.error('Screenshot error:', err.message);
+    console.error('Error:', err.message);
     res.status(500).json({ error: err.message });
   } finally {
     if (browser) await browser.close();
   }
 });
  
-app.get('/health', (req, res) => {
-  res.json({ status: 'ok' });
-});
+app.get('/health', (req, res) => res.json({ status: 'ok' }));
  
-app.listen(PORT, () => {
-  console.log(`Screenshot server running on port ${PORT}`);
-});
+app.listen(PORT, () => console.log(`Server running on port ${PORT}`));
