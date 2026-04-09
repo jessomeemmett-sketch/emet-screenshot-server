@@ -6,17 +6,20 @@ const app = express();
 const PORT = process.env.PORT || 3000;
  
 function findChrome() {
+  // Check environment variable first (set by nixpacks.toml)
+  if (process.env.CHROMIUM_PATH) return process.env.CHROMIUM_PATH;
+ 
   const candidates = [
-    '/usr/bin/google-chrome',
-    '/usr/bin/google-chrome-stable',
+    '/nix/var/nix/profiles/default/bin/chromium',
     '/usr/bin/chromium',
     '/usr/bin/chromium-browser',
-    '/snap/bin/chromium',
+    '/usr/bin/google-chrome',
+    '/usr/bin/google-chrome-stable',
   ];
   for (const path of candidates) {
     try { execSync(`test -f ${path}`); return path; } catch(e) {}
   }
-  try { return execSync('which chromium-browser 2>/dev/null || which chromium 2>/dev/null || which google-chrome 2>/dev/null').toString().trim(); } catch(e) {}
+  try { return execSync('which chromium 2>/dev/null || which chromium-browser 2>/dev/null || which google-chrome 2>/dev/null').toString().trim(); } catch(e) {}
   return null;
 }
  
